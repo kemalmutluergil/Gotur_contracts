@@ -75,6 +75,8 @@ contract Gotur {
     }
 
     event newOrder(address store);
+    event orderCanceled(address store, uint orderId);
+    event orderApproved(address store, uint orderId);
     uint nextOrderId;
     Order[] orders;
 
@@ -94,7 +96,7 @@ contract Gotur {
     }
 
     function addItem(string memory _name, uint _price, uint _quantity) public isStore {
-        //TODO: Add the specified item to store's menu
+        
         Store storage store = stores[msg.sender];
         Item storage itm = store.items[store.nextItemId];
         itm.name = _name;
@@ -123,10 +125,11 @@ contract Gotur {
         uint courierFee;
         uint[] itemIds;
         uint[] quantitities;
-        bool couirerFound;
+        bool courierFound;
         bool storeApproved;
         bool courierPickedUp;
-        bool isDelivered;
+        bool isDeliveredByCourier;
+        bool isReceivedByCustomer;
         bool isCanceled;
         bool isComplete;
         string mapAddress;
@@ -135,7 +138,9 @@ contract Gotur {
     }
 
     function placeOrder(address storeAddress, uint[] memory _itemIds, uint[] memory _quantities, string memory _mapAddress, uint _courierFee, uint _totalPrice) public isNotStore isNotCourier {
-        require(balances[msg.sender] >= _totalPrice, "Insufficient funds");
+        //TODO: check the item quantity and availability when placing order
+        require(balances[msg.sender] >= _totalPrice + _courierFee, "Insufficient funds");
+        require(stakes[storeAddress] >= _totalPrice, "Store doesn't have enough stake");
         Order memory order;
         order.customer = msg.sender;
         require(storeToken.balanceOf(storeAddress) == 1, "Invalid store address!");
@@ -153,49 +158,94 @@ contract Gotur {
         orders.push(order);
         orderHistory[msg.sender].push(order.orderId);
 
-        balances[msg.sender] -= _totalPrice;
+        balances[msg.sender] -= _totalPrice + _courierFee;
 
         emit newOrder(storeAddress);
         
     }
 
     function approveOrder(uint _orderId) public isStore {
-        Store storage store = stores[msg.sender];
-        Order memory order;
-        for (uint i = 0; i < store.orders.length; i++) {
-            if (store.orders[i] == _orderId) {
-                order  = orders[i];
-            }
-        }
-        if (order.orderId != _orderId) {
-            revert("Order not found");
-        }
+        require(_orderId < nextOrderId, "Invalid orderID");
+        Order storage order = orders[_orderId];
+        require(order.store == msg.sender, "Not your order");
         if (order.isCanceled) {
             revert("Order was canceled by the user");
         } else {
             order.storeApproved = true;
             order.storeApproveTime = block.timestamp;
+            emit orderApproved(msg.sender, _orderId);
         }
         
     }
 
     function cancelOrder(uint _orderId) public isCustomer {
-        Order memory order;
-        uint[] memory orderHist = orderHistory[msg.sender];
-        for (uint i = 0; i < orderHist.length; i++) {
-            if (orderHist[i] == _orderId) {
-                order = orders[orderHist[i]];
-            }
-        }
-        if (order.orderId != _orderId) {
-            revert("Order not found");
-        }
+        require(_orderId < nextOrderId, "Invalid orderID");
+        Order storage order = orders[_orderId];
+        require(order.customer == msg.sender, "Not your order");
         if (order.storeApproved) {
             revert("Store alreaady approved your order and is preparing!");
         } else {
             order.isCanceled = true;
+            emit orderCanceled(order.store, _orderId);
         }
     }
+
+    function takeOrderAsCourier(uint _orderId) public isCourier {
+        //TODO: 
+        require(_orderId < nextOrderId, "Invalid orderID");
+        Order storage order = orders[_orderId];
+        require(order.storeApproved && !order.courierFound && !order.isCanceled, "Order is not available");
+        require(stakes[msg.sender] >= order.totalPrice + order.courierFee, "Not enough stake");
+
+        order.courierFound = true;
+        order.courier = msg.sender;
+
+    }
+
+    function markOrderPickedUp(uint _orderId) public isCourier {
+        require(_orderId < nextOrderId, "Invalid orderID");
+        Order storage order = orders[_orderId];
+
+        balances[order.store] += order.totalPrice;
+        order.courierPickedUp = true;
+    }
+
+    function markOrderDelivered(uint _orderId) public isCourier {
+        require(_orderId < nextOrderId, "Invalid orderID");
+        Order storage order = orders[_orderId];
+        require(order.courier == msg.sender && order.courierPickedUp, "Order is not available");
+
+        order.isDeliveredByCourier = true;
+    }
+    
+    function markOrderReceived(uint _orderId) public isCustomer {
+        require(_orderId < nextOrderId, "Invalid orderID");
+        Order storage order = orders[_orderId];
+        require(order.customer == msg.sender && order.isDeliveredByCourier, "Order is not available");
+
+        order.isReceivedByCustomer = true;
+        order.isComplete = true;
+
+        balances[order.courier] += order.courierFee;
+    }
+
+    function cancelOrderByTime(uint _orderId) public isCustomer {
+        require(_orderId < nextOrderId, "Invalid orderID");
+        Order storage order = orders[_orderId];
+        require(order.customer == msg.sender && order.storeApproved && !order.isDeliveredByCourier, "Order is not available");
+        require(block.timestamp >= order.issuetime + 30 seconds, "Too soon to cancel"); //DEBUG: change this to minutes
+        if (!order.courierPickedUp) {
+            order.isCanceled = true;
+            balances[msg.sender] += 2 * order.totalPrice + order.courierFee;
+            stakes[order.store] -= order.totalPrice;
+        } else {
+            order.isCanceled = true;
+            balances[msg.sender] += 2 * order.courierFee;
+            stakes[order.courier] -= order.courierFee;
+        }
+        
+    }
+
 
     function makeCustomer() public isNotCourier isNotStore{
         customerToken.safeMint(msg.sender);
@@ -218,6 +268,12 @@ contract Gotur {
         courierToken.safeMint(msg.sender);
         stakes[msg.sender] += 500;
         balances[msg.sender] -= 500;
+    }
+
+    function placeStake(uint amount) public isNotCustomer {
+        require(balances[msg.sender] >= amount, "Not enough funds");
+        balances[msg.sender] -= amount;
+        stakes[msg.sender] += amount;
     }
 
 
