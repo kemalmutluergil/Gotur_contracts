@@ -70,8 +70,13 @@ contract Gotur {
         address owner;
         mapping(uint => Item) items;
         uint nextItemId;
-        uint[] itemIds;
+        bool isOpen;
         uint[] orders;
+    }
+
+    struct StoreRet {
+        string name;
+        address owner;
     }
 
     event newOrder(address store);
@@ -82,9 +87,9 @@ contract Gotur {
 
     mapping(address => uint[]) orderHistory;
 
+    //----------------------------Store and Item Functions-------------------------------
 
-    function getMenu(address ownerAddr) public view isCustomer returns (Item[] memory){
-        //TODO: Iterate over itemIds and return items presented at those key values in the map
+    function getMenu(address ownerAddr) public view returns (Item[] memory){
         Store storage store = stores[ownerAddr];
         Item[] memory ret = new Item[](store.nextItemId);
         for (uint i = 0; i < store.nextItemId; i++) {
@@ -95,9 +100,19 @@ contract Gotur {
         return ret;
     }
 
+    function getStores() public view returns (StoreRet[] memory) {
+        StoreRet[] memory ret = new StoreRet[](storeOwners.length);
+        for (uint i = 0; i < ret.length; i++) {
+            if (stores[storeOwners[i]].isOpen) {
+                ret[i] = StoreRet(stores[storeOwners[i]].name, stores[storeOwners[i]].owner);
+            }
+        }
+        return ret;
+    }
+
     function addItem(string memory _name, uint _price, uint _quantity) public isStore {
-        
         Store storage store = stores[msg.sender];
+        require(store.owner == msg.sender, "Unauthorized");
         Item storage itm = store.items[store.nextItemId];
         itm.name = _name;
         itm.price = _price;
@@ -106,16 +121,38 @@ contract Gotur {
         store.nextItemId += 1;
     }
 
-    function setQuantity(string memory name, uint quantity) public isStore {
+    function setQuantity(uint itemId, uint _quantity) public isStore {
+        require(_quantity >= 0, "Negative quantity not allowed");
+        Store storage store = stores[msg.sender];
+        require(store.owner == msg.sender, "Unauthorized");
+        require(itemId < store.nextItemId, "Invalid itemId");
+        Item storage itm = store.items[itemId];
+        itm.quantity = _quantity;
+    }
 
+    function openStore() public isStore {
+        Store storage store = stores[msg.sender];
+        require(store.owner == msg.sender, "Unauthorized");
+        store.isOpen = true;
+    }
+
+    function closeStore() public isStore {
+        Store storage store = stores[msg.sender];
+        require(store.owner == msg.sender, "Unauthorized");
+        store.isOpen = false;
     }
 
     function disableItem(uint itemId) public isStore {
-        //TODO: Iterate through itemIds, change the first match with the name
         Store storage store = stores[msg.sender];
+        require(store.owner == msg.sender, "Unauthorized");
+        require(itemId < store.nextItemId, "Invalid itemId");
         Item storage itm = store.items[itemId];
         itm.isAvailable = !itm.isAvailable;
     }
+
+    
+    //----------------------------Order Functions-------------------------
+
     struct Order {
         uint orderId;
         address customer;
@@ -144,6 +181,7 @@ contract Gotur {
         Order memory order;
         order.customer = msg.sender;
         require(storeToken.balanceOf(storeAddress) == 1, "Invalid store address!");
+        require(stores[storeAddress].isOpen, "Store is closed");
         order.store = storeAddress;
         order.courierFee = _courierFee;
         order.totalPrice = _totalPrice;
@@ -245,7 +283,30 @@ contract Gotur {
         }
         
     }
+    //--------------------------Getters-------------------------
+    function getActiveOrders() external view returns (Order[] memory) {
+        uint[] memory ids = orderHistory[msg.sender];
+        
 
+        uint activeCount = 0;
+        for (uint i = 0; i < ids.length; i++) {
+            if (!orders[ids[i]].isComplete) {
+                activeCount++;
+            }
+        }
+
+        Order[] memory ret = new Order[](activeCount);
+        uint j = 0;
+        for (uint i = 0; i < ids.length; i++) {
+            if (!orders[ids[i]].isComplete) {
+                ret[j] = orders[ids[i]];
+                j += 1;
+            }
+        }
+        return ret;
+    }
+
+    //---------------------------User Type Functions---------------------------
 
     function makeCustomer() public isNotCourier isNotStore{
         customerToken.safeMint(msg.sender);
@@ -270,13 +331,6 @@ contract Gotur {
         balances[msg.sender] -= 500;
     }
 
-    function placeStake(uint amount) public isNotCustomer {
-        require(balances[msg.sender] >= amount, "Not enough funds");
-        balances[msg.sender] -= amount;
-        stakes[msg.sender] += amount;
-    }
-
-
     //-------------------Token Functions-------------------------
 
     function deposit(uint256 amount) external {
@@ -300,5 +354,15 @@ contract Gotur {
 
     function balanceOf(address user) external view returns (uint256) {
         return balances[user];
+    }
+
+    function placeStake(uint amount) public isNotCustomer {
+        require(balances[msg.sender] >= amount, "Not enough funds");
+        balances[msg.sender] -= amount;
+        stakes[msg.sender] += amount;
+    }
+
+    function stakeOf(address user) external view returns (uint256) {
+        return stakes[user];
     }
 }
