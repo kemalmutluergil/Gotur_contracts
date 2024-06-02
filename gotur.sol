@@ -100,16 +100,6 @@ contract Gotur {
         return ret;
     }
 
-    function getStores() public view returns (StoreRet[] memory) {
-        StoreRet[] memory ret = new StoreRet[](storeOwners.length);
-        for (uint i = 0; i < ret.length; i++) {
-            if (stores[storeOwners[i]].isOpen) {
-                ret[i] = StoreRet(stores[storeOwners[i]].name, stores[storeOwners[i]].owner);
-            }
-        }
-        return ret;
-    }
-
     function addItem(string memory _name, uint _price, uint _quantity) public isStore {
         Store storage store = stores[msg.sender];
         require(store.owner == msg.sender, "Unauthorized");
@@ -173,11 +163,20 @@ contract Gotur {
         uint issuetime;
         uint storeApproveTime;
     }
+   
 
     function placeOrder(address storeAddress, uint[] memory _itemIds, uint[] memory _quantities, string memory _mapAddress, uint _courierFee, uint _totalPrice) public isNotStore isNotCourier {
-        //TODO: check the item quantity and availability when placing order
         require(balances[msg.sender] >= _totalPrice + _courierFee, "Insufficient funds");
         require(stakes[storeAddress] >= _totalPrice, "Store doesn't have enough stake");
+        Store storage store = stores[storeAddress];
+
+        for (uint i = 0; i < _itemIds.length; i++) {
+            if (!store.items[_itemIds[i]].isAvailable) {
+                revert("Invalid or unavailable item!");
+            } else if (store.items[_itemIds[i]].quantity < _quantities[i]) {
+                revert("Too large quantity for item");
+            }
+        }
         Order memory order;
         order.customer = msg.sender;
         require(storeToken.balanceOf(storeAddress) == 1, "Invalid store address!");
@@ -195,6 +194,11 @@ contract Gotur {
 
         orders.push(order);
         orderHistory[msg.sender].push(order.orderId);
+        orderHistory[storeAddress].push(order.orderId);
+
+        for (uint i = 0; i < _itemIds.length; i++) {
+            store.items[_itemIds[i]].quantity -= _quantities[_itemIds[i]];
+        }
 
         balances[msg.sender] -= _totalPrice + _courierFee;
 
@@ -237,6 +241,8 @@ contract Gotur {
 
         order.courierFound = true;
         order.courier = msg.sender;
+        
+        orderHistory[msg.sender].push(order.orderId);
 
     }
 
@@ -290,7 +296,7 @@ contract Gotur {
 
         uint activeCount = 0;
         for (uint i = 0; i < ids.length; i++) {
-            if (!orders[ids[i]].isComplete) {
+            if (!orders[ids[i]].isComplete && !orders[ids[i]].isCanceled) {
                 activeCount++;
             }
         }
@@ -298,11 +304,35 @@ contract Gotur {
         Order[] memory ret = new Order[](activeCount);
         uint j = 0;
         for (uint i = 0; i < ids.length; i++) {
-            if (!orders[ids[i]].isComplete) {
+            if (!orders[ids[i]].isComplete && !orders[ids[i]].isCanceled) {
                 ret[j] = orders[ids[i]];
                 j += 1;
             }
         }
+        return ret;
+    }
+
+    function getStores() public view returns (StoreRet[] memory) {
+        StoreRet[] memory ret = new StoreRet[](storeOwners.length);
+        for (uint i = 0; i < ret.length; i++) {
+            if (stores[storeOwners[i]].isOpen) {
+                ret[i] = StoreRet(stores[storeOwners[i]].name, stores[storeOwners[i]].owner);
+            }
+        }
+        return ret;
+    }
+
+    function getServeableOrders() external view returns (Order[] memory) {
+        //TODO: highly inefficient
+        //return 10 orders at max...
+        Order[] memory ret = new Order[](10);
+        uint j = 0;
+        for (uint i = 0; i < nextOrderId && j < 10; i++) {
+            if (!orders[i].isCanceled && !orders[i].courierFound && orders[i].storeApproved) {
+                ret[j] = orders[i];
+                j += 1;
+            }
+        }   
         return ret;
     }
 
