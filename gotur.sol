@@ -336,6 +336,13 @@ contract Gotur {
         return ret;
     }
 
+    function getItemFromStore(uint itemId, address storeAddress) public view returns (Item memory) {
+        require(storeToken.balanceOf(storeAddress) == 1, "Invalid store address");
+        Store storage store = stores[storeAddress];
+        require(itemId < store.nextItemId, "Invalid itemID");
+        return store.items[itemId];
+    }
+
     //---------------------------User Type Functions---------------------------
 
     function makeCustomer() public isNotCourier isNotStore{
