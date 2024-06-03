@@ -335,20 +335,24 @@ contract Gotur {
         return ret;
     }
 
-    function getActiveOrderAsCourier() external isCourier view returns (Order memory) {
-        for (uint i = 0; i < orderHistory[msg.sender].length; i++) {
-            if (!orders[orderHistory[msg.sender][i]].isCanceled && !orders[orderHistory[msg.sender][i]].isComplete) {
-                return orders[orderHistory[msg.sender][i]];
-            }
-        }
-        revert("No active order");
-    }
-
     function getItemFromStore(uint itemId, address storeAddress) public view returns (Item memory) {
         require(storeToken.balanceOf(storeAddress) == 1, "Invalid store address");
         Store storage store = stores[storeAddress];
         require(itemId < store.nextItemId, "Invalid itemID");
         return store.items[itemId];
+    }
+
+    function getCompletedOrders() external view returns (Order[] memory) {
+        uint[] memory ids = orderHistory[msg.sender];
+        Order[] memory ret = new Order[](ids.length);
+        uint j = 0; 
+        for (uint i = 0; i < ids.length; i++) {
+            if (orders[ids[i]].isComplete) {
+                ret[j] = orders[ids[i]];
+                j += 1;
+            }
+        }
+        return ret;
     }
 
     //---------------------------User Type Functions---------------------------
