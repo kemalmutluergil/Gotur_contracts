@@ -243,7 +243,6 @@ contract Gotur {
         order.courier = msg.sender;
         
         orderHistory[msg.sender].push(order.orderId);
-
     }
 
     function markOrderPickedUp(uint _orderId) public isCourier {
@@ -322,7 +321,7 @@ contract Gotur {
         return ret;
     }
 
-    function getServeableOrders() external view returns (Order[] memory) {
+    function getServeableOrders() external isCourier view returns (Order[] memory) {
         //TODO: highly inefficient
         //return 10 orders at max...
         Order[] memory ret = new Order[](10);
@@ -334,6 +333,15 @@ contract Gotur {
             }
         }   
         return ret;
+    }
+
+    function getActiveOrderAsCourier() external isCourier view returns (Order memory) {
+        for (uint i = 0; i < orderHistory[msg.sender].length; i++) {
+            if (!orders[orderHistory[msg.sender][i]].isCanceled && !orders[orderHistory[msg.sender][i]].isComplete) {
+                return orders[orderHistory[msg.sender][i]];
+            }
+        }
+        revert("No active order");
     }
 
     function getItemFromStore(uint itemId, address storeAddress) public view returns (Item memory) {
