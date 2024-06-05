@@ -93,9 +93,8 @@ contract Gotur {
         Store storage store = stores[ownerAddr];
         Item[] memory ret = new Item[](store.nextItemId);
         for (uint i = 0; i < store.nextItemId; i++) {
-            if (store.items[i].isAvailable) {
-                ret[i] = store.items[i];
-            }
+            ret[i] = store.items[i];
+        
         }
         return ret;
     }
@@ -112,12 +111,20 @@ contract Gotur {
     }
 
     function setQuantity(uint itemId, uint _quantity) public isStore {
-        require(_quantity >= 0, "Negative quantity not allowed");
+        require(_quantity >= 0, "Negative quantity is not allowed");
         Store storage store = stores[msg.sender];
         require(store.owner == msg.sender, "Unauthorized");
         require(itemId < store.nextItemId, "Invalid itemId");
         Item storage itm = store.items[itemId];
         itm.quantity = _quantity;
+    }
+
+     function changePrice(uint itemId, uint _price) public isStore {
+        require(_price >= 0, "Negative price is not allowed");
+        Store storage store = stores[msg.sender];
+        require(store.owner == msg.sender, "Unauthorized");
+        Item storage itm = store.items[itemId];
+        itm.price = _price;
     }
 
     function openStore() public isStore {
@@ -132,7 +139,7 @@ contract Gotur {
         store.isOpen = false;
     }
 
-    function disableItem(uint itemId) public isStore {
+    function toggleItemAvailability(uint itemId) public isStore {
         Store storage store = stores[msg.sender];
         require(store.owner == msg.sender, "Unauthorized");
         require(itemId < store.nextItemId, "Invalid itemId");
@@ -140,7 +147,6 @@ contract Gotur {
         itm.isAvailable = !itm.isAvailable;
     }
 
-    
     //----------------------------Order Functions-------------------------
 
     struct Order {
@@ -151,6 +157,7 @@ contract Gotur {
         uint totalPrice;
         uint courierFee;
         uint[] itemIds;
+        string [] itemNames;
         uint[] quantitities;
         bool courierFound;
         bool storeApproved;
@@ -165,7 +172,7 @@ contract Gotur {
     }
    
 
-    function placeOrder(address storeAddress, uint[] memory _itemIds, uint[] memory _quantities, string memory _mapAddress, uint _courierFee, uint _totalPrice) public isNotStore isNotCourier {
+    function placeOrder(address storeAddress, uint[] memory _itemIds, string[] memory _itemNames, uint[] memory _quantities, string memory _mapAddress, uint _courierFee, uint _totalPrice) public isNotStore isNotCourier {
         require(balances[msg.sender] >= _totalPrice + _courierFee, "Insufficient funds");
         require(stakes[storeAddress] >= _totalPrice, "Store doesn't have enough stake");
         Store storage store = stores[storeAddress];
@@ -186,6 +193,7 @@ contract Gotur {
         order.totalPrice = _totalPrice;
         order.issuetime = block.timestamp;
         order.itemIds = _itemIds;
+        order.itemNames = _itemNames;
         order.quantitities = _quantities;
         order.mapAddress = _mapAddress;
         order.orderId = nextOrderId;
@@ -333,13 +341,6 @@ contract Gotur {
             }
         }   
         return ret;
-    }
-
-    function getItemFromStore(uint itemId, address storeAddress) public view returns (Item memory) {
-        require(storeToken.balanceOf(storeAddress) == 1, "Invalid store address");
-        Store storage store = stores[storeAddress];
-        require(itemId < store.nextItemId, "Invalid itemID");
-        return store.items[itemId];
     }
 
     function getCompletedOrders() external view returns (Order[] memory) {
